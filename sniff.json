@@ -1,3 +1,5 @@
 {
-  ".*.rs": ["cargo clippy", "cargo check", "cargo build --release"]
+  ".*.rs": ["cargo clippy", "cargo check", "cargo build --release"],
+  "sniff_ignore_dir": ["target"],
+  "sniff_ignore_file": []
 }

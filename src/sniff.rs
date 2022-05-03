@@ -1,14 +1,34 @@
 use libc::{wait, WNOHANG};
 use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
+use serde::{Deserialize, Serialize};
 use std::{
-    env, fs,
+    env,
+    env::args,
+    fs,
     path::Path,
     process::{exit, Command},
     sync::mpsc::channel,
     time::Duration,
 };
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct Ignore {
+    sniff_ignore_dir: Vec<String>,
+    sniff_ignore_file: Vec<String>,
+}
+
 fn main() {
-    env::set_var("RUST_LOG", "sniff=trace");
+    env::set_var("RUST_LOG", "sniff=warn");
+    let mut args = args();
+    if let Some(arg) = args.nth(1) {
+        match arg.as_str() {
+            "-d" => env::set_var("RUST_LOG", "sniff=trace"),
+            _ => {
+                println!("Usage:\nsniff [FLAGS]\n\nFlags:\n-d -- debug",);
+                exit(1);
+            }
+        }
+    }
     env_logger::init();
     log::trace!("Logger initialized.");
 
@@ -16,9 +36,14 @@ fn main() {
     let json: serde_json::Value =
         serde_json::from_str(config_file.as_str()).expect("JSON was not well-formatted");
 
+    let ignore_list: Ignore =
+        serde_json::from_str(config_file.as_str()).expect("JSON was not well-formatted");
+
     if let Ok(current_dir) = env::current_dir() {
         let (tx, rx) = channel();
+        log::debug!("Created tx and rx channels as mpsc.");
         let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_millis(0)).unwrap();
+        log::debug!("Created watcher.");
 
         if let Err(e) = watcher.watch(current_dir.into_os_string(), RecursiveMode::Recursive) {
             log::error!("Failed to watch current directory: {:#?}", e);
@@ -28,10 +53,12 @@ fn main() {
             if let Ok(event) = rx.recv() {
                 match event {
                     DebouncedEvent::Write(path) => {
-                        check_and_run(path.to_str().unwrap(), json.clone());
+                        log::debug!("Received Write event: {:?}", path);
+                        check_and_run(path.to_str().unwrap(), json.clone(), ignore_list.clone());
                     }
                     DebouncedEvent::NoticeWrite(path) => {
-                        check_and_run(path.to_str().unwrap(), json.clone());
+                        log::debug!("Received NoticeWrite event: {:?}", path);
+                        check_and_run(path.to_str().unwrap(), json.clone(), ignore_list.clone());
                     }
                     _ => {}
                 }
@@ -68,7 +95,6 @@ fn fetch_sniff_config_file() -> String {
 }
 
 fn run_system_command(command: &str) {
-    println!("{:#?}", command);
     unsafe {
         let mut status = WNOHANG;
         wait(&mut status);
@@ -81,15 +107,35 @@ fn run_system_command(command: &str) {
     }
 }
 
-fn check_and_run(file_name: &str, json: serde_json::Value) {
+fn check_and_run(file_name: &str, json: serde_json::Value, ignore_list: Ignore) {
+    // First the file check.
+    for ignore_file in ignore_list.sniff_ignore_file {
+        if ignore_file[..] == file_name[file_name.rfind('/').unwrap() + 1..] {
+            log::debug!("Ignoring {} as it's in the ingored file list.", file_name);
+            return;
+        }
+    }
+
+    // Now the dir check.
+    for ignore_dir in ignore_list.sniff_ignore_dir {
+        if file_name[0..file_name.rfind('/').unwrap()].contains(ignore_dir.as_str()) {
+            log::debug!(
+                "Ignoring {} as it's in the ingored directory list.",
+                file_name
+            );
+            return;
+        }
+    }
+
     match json {
         serde_json::Value::Object(map) => {
-            for (patterns, commands) in map.iter() {
-                if regex::Regex::new(patterns)
+            for (pattern, commands) in map.iter() {
+                if regex::Regex::new(pattern)
                     .unwrap()
                     .captures(file_name)
                     .is_some()
                 {
+                    log::debug!("Found a pattern match!");
                     match commands {
                         serde_json::Value::Array(arr) => {
                             for command in arr {
