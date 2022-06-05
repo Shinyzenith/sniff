@@ -8,23 +8,9 @@ I will provide absolutely no support for windows.
 
 # Config file:
 
-- A global config can be defined in `~/.config/sniff/sniff.json`.
-- A local config overrides the global one. Local configs should be placed in the root of the project under the name `sniff.json`
+Sniff is used to develop sniff. Look at `sniff.json` in the project root to understand how sniff is configured.
 
-```json
-{
-  ".*.rs": ["cargo build --release"],
-  ".*.zig": ["zig test .", "zig build"],
-  "sniff_ignore_dir": ["target"],
-  "sniff_ignore_file": ["test.rs"],
-  "sniff_cooldown": 650
-}
-```
-
-# Sniff ignore:
-
-- Make sniff ignore directories with the `sniff_ignore_dir` key.
-- Make sniff ignore files with the `sniff_ignore_file` key.
+A detailed explanation is present in `man 5 sniff`.
 
 # Installation:
 
@@ -32,6 +18,7 @@ I will provide absolutely no support for windows.
 
 1. git
 1. make
+1. scdoc
 
 ## Steps:
 
