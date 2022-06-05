@@ -1,6 +1,7 @@
 use libc::{wait, WNOHANG};
 use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
 use std::{
     env,
     env::args,
@@ -8,16 +9,18 @@ use std::{
     path::Path,
     process::{exit, Command},
     sync::mpsc::channel,
-    time::Duration,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct Ignore {
     sniff_ignore_dir: Vec<String>,
     sniff_ignore_file: Vec<String>,
+    sniff_cooldown: u128,
 }
 
 fn main() {
+    let mut last_run: Instant = Instant::now();
+
     env::set_var("RUST_LOG", "sniff=warn");
     let mut args = args();
     if let Some(arg) = args.nth(1) {
@@ -52,13 +55,14 @@ fn main() {
         loop {
             if let Ok(event) = rx.recv() {
                 match event {
-                    DebouncedEvent::Write(path) => {
+                    DebouncedEvent::Write(path) | DebouncedEvent::NoticeWrite(path) => {
                         log::debug!("Received Write event: {:?}", path);
-                        check_and_run(path.to_str().unwrap(), json.clone(), ignore_list.clone());
-                    }
-                    DebouncedEvent::NoticeWrite(path) => {
-                        log::debug!("Received NoticeWrite event: {:?}", path);
-                        check_and_run(path.to_str().unwrap(), json.clone(), ignore_list.clone());
+                        check_and_run(
+                            path.to_str().unwrap(),
+                            json.clone(),
+                            ignore_list.clone(),
+                            &mut last_run,
+                        );
                     }
                     _ => {}
                 }
@@ -107,7 +111,12 @@ fn run_system_command(command: &str) {
     }
 }
 
-fn check_and_run(file_name: &str, json: serde_json::Value, ignore_list: Ignore) {
+fn check_and_run(
+    file_name: &str,
+    json: serde_json::Value,
+    ignore_list: Ignore,
+    last_run: &mut Instant,
+) {
     // First the file check.
     for ignore_file in ignore_list.sniff_ignore_file {
         if ignore_file[..] == file_name[file_name.rfind('/').unwrap() + 1..] {
@@ -126,6 +135,13 @@ fn check_and_run(file_name: &str, json: serde_json::Value, ignore_list: Ignore) 
             return;
         }
     }
+
+    // Cooldown check.
+    if Instant::now().duration_since(*last_run).as_millis() < ignore_list.sniff_cooldown {
+        log::debug!("In cooldown.");
+        return;
+    }
+    *last_run = Instant::now();
 
     match json {
         serde_json::Value::Object(map) => {

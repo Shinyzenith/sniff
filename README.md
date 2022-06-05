@@ -16,7 +16,8 @@ I will provide absolutely no support for windows.
   ".*.rs": ["cargo build --release"],
   ".*.zig": ["zig test .", "zig build"],
   "sniff_ignore_dir": ["target"],
-  "sniff_ignore_file": ["test.rs"]
+  "sniff_ignore_file": ["test.rs"],
+  "sniff_cooldown": 650
 }
 ```
 
