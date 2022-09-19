@@ -18,7 +18,7 @@ A detailed explanation is present in `man 5 sniff`.
 
 1. git
 1. make
-1. scdoc
+1. scdoc (Optional. if present then man pages are transpiled and installed.)
 
 ## Steps:
 
