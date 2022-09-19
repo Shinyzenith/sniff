@@ -68,4 +68,3 @@ fn read_and_replace_by_ext(path: &str, search: &str, replace: &str) -> Vec<(Stri
     }
     files
 }
-
