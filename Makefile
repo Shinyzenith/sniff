@@ -2,6 +2,8 @@ BINARY := sniff
 BUILDFLAGS := --release
 TARGET_DIR := /usr/bin
 SOURCE_DIR := ./target/release
+MAN1_DIR := /usr/share/man/man1
+MAN5_DIR := /usr/share/man/man5
 
 all: build
 
@@ -10,13 +12,11 @@ build:
 
 clean:
 	@cargo clean
-	@rm *.gz
+	@rm ./docs/*.gz
 
 install:
-	@scdoc < $(BINARY).1.scd > $(BINARY).1.gz
-	@scdoc < $(BINARY).5.scd > $(BINARY).5.gz
-	@mv ./$(BINARY).1.gz /usr/share/man/man1/
-	@mv ./$(BINARY).5.gz /usr/share/man/man5/
+	@find ./docs -type f -iname "*.1.gz" -exec cp {} $(MAN1_DIR) \;
+	@find ./docs -type f -iname "*.5.gz" -exec cp {} $(MAN7_DIR) \;
 	@mkdir -p $(TARGET_DIR)
 	@cp $(SOURCE_DIR)/$(BINARY) $(TARGET_DIR)
 	@chmod +x $(TARGET_DIR)/$(BINARY)
