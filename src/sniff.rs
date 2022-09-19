@@ -21,7 +21,7 @@ struct Ignore {
 fn main() {
     let mut last_run: Instant = Instant::now();
 
-    env::set_var("RUST_LOG", "sniff=warn");
+    env::set_var("RUST_LOG", "sniff=info");
     let mut args = args();
     if let Some(arg) = args.nth(1) {
         match arg.as_str() {
@@ -87,7 +87,9 @@ fn fetch_sniff_config_file() -> String {
             Path::new(&val).join("sniff/sniff.json")
         }
         Err(_) => {
-            log::error!("XDG_CONFIG_HOME has not been set.");
+            log::error!(
+                "XDG_CONFIG_HOME has not been set. Falling back to ~/.config/sniff/sniff.json"
+            );
             Path::new("~/.config/sniff/sniff.json").to_path_buf()
         }
     };
@@ -107,7 +109,7 @@ fn run_system_command(command: &str) {
         log::error!("Failed to execute {}", command);
         log::error!("Error, {}", e);
     } else {
-        log::debug!("Ran: {:#?}", command);
+        log::info!("Ran: {:#?}", command);
     }
 }
 
@@ -117,6 +119,12 @@ fn check_and_run(
     ignore_list: Ignore,
     last_run: &mut Instant,
 ) {
+    // Cooldown check.
+    if Instant::now().duration_since(*last_run).as_millis() < ignore_list.sniff_cooldown {
+        log::debug!("In cooldown.");
+        return;
+    }
+
     // First the file check.
     for ignore_file in ignore_list.sniff_ignore_file {
         if ignore_file[..] == file_name[file_name.rfind('/').unwrap() + 1..] {
@@ -136,11 +144,6 @@ fn check_and_run(
         }
     }
 
-    // Cooldown check.
-    if Instant::now().duration_since(*last_run).as_millis() < ignore_list.sniff_cooldown {
-        log::debug!("In cooldown.");
-        return;
-    }
     *last_run = Instant::now();
 
     match json {
@@ -157,6 +160,7 @@ fn check_and_run(
                             for command in arr {
                                 match command {
                                     serde_json::Value::String(command) => {
+                                        log::info!("Running build scripts for: {:#?}", file_name);
                                         run_system_command(command);
                                     }
                                     _ => {
