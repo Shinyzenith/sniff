@@ -102,7 +102,12 @@ fn fetch_sniff_config_file() -> String {
         log::error!("Config file doesn't exist.");
         exit(1);
     }
-    fs::read_to_string(config_file_path).unwrap()
+    if Path::new(&config_file_path).exists() {
+        fs::read_to_string(config_file_path).unwrap()
+    } else {
+        log::error!("Config file not found!");
+        exit(1);
+    }
 }
 
 fn run_system_command(command_dir_pairs: Vec<(Vec<String>, Option<PathBuf>)>) {
