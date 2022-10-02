@@ -1,6 +1,12 @@
 {
-  ".*.rs": ["cargo clippy", "cargo build --release"],
-  "sniff_ignore_dir": ["target"],
+  "rs": [
+    "cargo clippy",
+    "cargo build --release"
+  ],
+  "sniff_ignore_dir": [
+    "target",
+    ".git"
+  ],
   "sniff_ignore_file": [],
   "sniff_cooldown": 650
 }

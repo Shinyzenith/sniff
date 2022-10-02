@@ -14,20 +14,44 @@ Sniff uses the JSON file format. Configuration files should always be named *sni
 # SYNTAX
 
 
-All JSON keys apart from the following are treated as regular expressions to
-check for file changes:
+All JSON keys apart from the following are treated as patterns to check for file changes:
 	- _sniff_ignore_dir_ (Make sniff ignore directories.)
 	- _sniff_ignore_file_ (Make sniff ignore files.)
 	- _sniff_cooldown_ (State the cooldown between consecutive build commands.)
+
+Each pattern check can either be an object or an array. 
+	- If the pattern check if an array then the commands in it are executed.
+	- If the pattern check is an object then the following keys are searched for:
+		- "commands": The array of commands to execute.
+		- "relative_dir": The directory relative to which the commands should be executed.
 
 # EXAMPLE
 
 ```
 {
-  ".*.rs": ["cargo build --release"],
-  ".*.zig": ["zig test .", "zig build"],
-  "sniff_ignore_dir": ["target"],
-  "sniff_ignore_file": ["test.rs"],
+  "zig": [
+    "make"
+  ],
+  "c": {
+    "commands": [
+      "make"
+    ],
+    "relative_dir": "./nextctl"
+  },
+  "rs": {
+    "commands": [
+      "cargo clippy",
+      "cargo build --release"
+    ],
+    "relative_dir": "./nextctl-rs"
+  },
+  "sniff_ignore_dir": [
+    "zig-out",
+    "zig-cache",
+    ".git",
+    "target"
+  ],
+  "sniff_ignore_file": [],
   "sniff_cooldown": 650
 }
 ```

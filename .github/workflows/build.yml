@@ -1,4 +1,4 @@
-name: Build Sniff
+name: CI
 
 on: [push]
 
@@ -13,23 +13,11 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v2
 
-      - name: Version tag.
-        run: echo "VERSION=$(grep -E '^version' ./Cargo.toml| sed 's/version = \"\(.*\)\"/\1/g')">>$GITHUB_ENV
-
-      - name: Compile Binary.
+      - name: Build
         run: cargo build --release --verbose
-
-      - name: Release
-        uses: "marvinpinto/action-automatic-releases@latest"
-        with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: ${{ env.VERSION }}
-          prerelease: true
-          title: "Sniff ${{ env.VERSION }}"
-          files: |
-            target/release/sniff
 
   rustfmt:
     runs-on: ubuntu-latest

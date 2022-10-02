@@ -1,6 +1,7 @@
 use libc::{wait, WNOHANG};
 use notify::{DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use std::{
     env,
@@ -27,8 +28,12 @@ fn main() {
         match arg.as_str() {
             "-d" => env::set_var("RUST_LOG", "sniff=trace"),
             _ => {
-                println!("Usage:\nsniff [FLAGS]\n\nFlags:\n-d -- debug",);
-                exit(1);
+                println!(
+                    "Usage:\nsniff [FLAGS]\nVersion: {:#?}\n\nFlags:\n-d -- debug\n\nAuthors: {:#?}",
+                    env!("CARGO_PKG_VERSION"),
+                    env!("CARGO_PKG_AUTHORS")
+                );
+                exit(0);
             }
         }
     }
@@ -37,10 +42,10 @@ fn main() {
 
     let config_file = fetch_sniff_config_file();
     let json: serde_json::Value =
-        serde_json::from_str(config_file.as_str()).expect("JSON was not well-formatted");
+        serde_json::from_str(config_file.as_str()).expect("JSON not well-formatted");
 
     let ignore_list: Ignore =
-        serde_json::from_str(config_file.as_str()).expect("JSON was not well-formatted");
+        serde_json::from_str(config_file.as_str()).expect("JSON not well-formatted");
 
     if let Ok(current_dir) = env::current_dir() {
         let (tx, rx) = channel();
@@ -100,21 +105,35 @@ fn fetch_sniff_config_file() -> String {
     fs::read_to_string(config_file_path).unwrap()
 }
 
-fn run_system_command(command: &str) {
+fn run_system_command(command_dir_pairs: Vec<(Vec<String>, Option<PathBuf>)>) {
     unsafe {
         let mut status = WNOHANG;
         wait(&mut status);
     }
-    if let Err(e) = Command::new("sh").arg("-c").arg(command).spawn() {
-        log::error!("Failed to execute {}", command);
-        log::error!("Error, {}", e);
-    } else {
-        log::info!("Ran: {:#?}", command);
+    for (commands, relative_dir) in command_dir_pairs {
+        for command in commands {
+            // We need to split the arg apart because it returns a temporary pointer that is free'd after
+            // the execution of the declaration line below.
+            let mut cmd = Command::new("sh");
+            cmd.arg("-c").arg(command.clone());
+
+            // Dir setting
+            if let Some(relative_dir) = relative_dir.clone() {
+                cmd.current_dir(relative_dir);
+            }
+
+            if let Err(e) = cmd.spawn() {
+                log::error!("Failed to execute {}", command);
+                log::error!("Error, {}", e);
+            } else {
+                log::info!("Ran {:#?}", command);
+            }
+        }
     }
 }
 
 fn check_and_run(
-    file_name: &str,
+    file_path: &str,
     json: serde_json::Value,
     ignore_list: Ignore,
     last_run: &mut Instant,
@@ -127,18 +146,18 @@ fn check_and_run(
 
     // First the file check.
     for ignore_file in ignore_list.sniff_ignore_file {
-        if ignore_file[..] == file_name[file_name.rfind('/').unwrap() + 1..] {
-            log::debug!("Ignoring {} as it's in the ingored file list.", file_name);
+        if ignore_file[..] == file_path[file_path.rfind('/').unwrap() + 1..] {
+            log::debug!("Ignoring {} as it's in the ingored file list.", file_path);
             return;
         }
     }
 
     // Now the dir check.
     for ignore_dir in ignore_list.sniff_ignore_dir {
-        if file_name[0..file_name.rfind('/').unwrap()].contains(ignore_dir.as_str()) {
+        if file_path[0..file_path.rfind('/').unwrap()].contains(ignore_dir.as_str()) {
             log::debug!(
                 "Ignoring {} as it's in the ingored directory list.",
-                file_name
+                file_path
             );
             return;
         }
@@ -146,32 +165,87 @@ fn check_and_run(
 
     *last_run = Instant::now();
 
+    let mut command_dir_pairs: Vec<(Vec<String>, Option<PathBuf>)> = Vec::new();
+    let file_name = match Path::new(file_path).extension() {
+        Some(x) => match x.to_str() {
+            Some(y) => y,
+            None => {
+                log::error!("OSstr to str conversion failed!");
+                exit(1);
+            }
+        },
+        None => {
+            log::error!("Failed to get file name from absolute path!");
+            exit(1);
+        }
+    };
+    dbg!(file_name);
     match json {
         serde_json::Value::Object(map) => {
-            for (pattern, commands) in map.iter() {
-                if regex::Regex::new(pattern)
-                    .unwrap()
-                    .captures(file_name)
-                    .is_some()
-                {
-                    log::debug!("Found a pattern match!");
-                    match commands {
+            for (pattern, instructions) in map.iter() {
+                if pattern.eq(file_name) {
+                    match instructions {
+                        serde_json::Value::Object(obj) => {
+                            let mut relative_dir: Option<PathBuf> = None;
+                            let mut command_strs: Vec<String> = Vec::new();
+                            for (key, pair) in obj.iter() {
+                                match key.as_str() {
+                                    "relative_dir" => {
+                                        if let serde_json::Value::String(dir) = pair {
+                                            relative_dir = Some(PathBuf::from(dir));
+                                        } else {
+                                            log::error!(
+                                                "Key \"relative_dir\" only takes string values!"
+                                            );
+                                            exit(1);
+                                        }
+                                    }
+                                    "commands" => {
+                                        if let serde_json::Value::Array(commands) = pair {
+                                            for command in commands {
+                                                match command {
+                                                    serde_json::Value::String(command) => {
+                                                        command_strs.push(command.to_string());
+                                                    }
+                                                    _ => {
+                                                        log::error!("Command wasn't a string.");
+                                                        exit(1);
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            log::error!("Key \"commands\" only takes arrays!");
+                                            exit(1);
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            command_dir_pairs.push((command_strs, relative_dir.clone()));
+
+                            log::info!("Running build scripts for {:#?}", file_path);
+                            run_system_command(command_dir_pairs.clone());
+                        }
                         serde_json::Value::Array(arr) => {
+                            let mut commands: Vec<String> = Vec::new();
                             for command in arr {
                                 match command {
                                     serde_json::Value::String(command) => {
-                                        log::info!("Running build scripts for: {:#?}", file_name);
-                                        run_system_command(command);
+                                        commands.push(command.to_owned());
                                     }
                                     _ => {
-                                        log::error!("Command wasn't a string.");
+                                        log::error!(
+                                            "Command arrays must be filled with strings only!"
+                                        );
                                         exit(1);
                                     }
                                 }
                             }
+
+                            run_system_command(vec![(commands, None)]);
                         }
                         _ => {
-                            log::error!("Did not recieve an array of commands.");
+                            log::error!("Received incorrect pattern object for {:#?}", pattern);
                             exit(1);
                         }
                     }
