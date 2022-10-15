@@ -16,6 +16,10 @@ use std::{
 struct Ignore {
     sniff_ignore_dir: Vec<String>,
     sniff_ignore_file: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct Cooldown {
     sniff_cooldown: u128,
 }
 
@@ -40,12 +44,34 @@ fn main() {
     env_logger::init();
     log::trace!("Logger initialized.");
 
-    let config_file = fetch_sniff_config_file();
-    let json: serde_json::Value =
-        serde_json::from_str(config_file.as_str()).expect("JSON not well-formatted");
+    let config_file = match fetch_sniff_config() {
+        Some(cfg) => cfg,
+        None => {
+            log::error!("Failed to read sniff config file. Either it does not exist or the required permissions for reading the file are not available!");
+            exit(1);
+        }
+    };
 
-    let ignore_list: Ignore =
-        serde_json::from_str(config_file.as_str()).expect("JSON not well-formatted");
+    let json: serde_json::Value = match serde_json::from_str(config_file.as_str()) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            log::error!("Failed to marshal input string to JSON: {:#?}", e);
+            exit(1);
+        }
+    };
+
+    let ignore_list: Option<Ignore> = match serde_json::from_str(config_file.as_str()) {
+        Ok(ign) => Some(ign),
+        Err(..) => {
+            log::debug!("No ignore directives found.");
+            None
+        }
+    };
+
+    let cooldown: u128 = match serde_json::from_str(config_file.as_str()) {
+        Ok(cooldown) => cooldown,
+        Err(..) => 650,
+    };
 
     if let Ok(current_dir) = env::current_dir() {
         let (tx, rx) = channel();
@@ -66,6 +92,7 @@ fn main() {
                             path.to_str().unwrap(),
                             json.clone(),
                             ignore_list.clone(),
+                            cooldown,
                             &mut last_run,
                         );
                     }
@@ -80,10 +107,10 @@ fn main() {
     }
 }
 
-fn fetch_sniff_config_file() -> String {
+fn fetch_sniff_config() -> Option<String> {
     let config_file_path = Path::new("./sniff.json");
     if config_file_path.exists() {
-        return fs::read_to_string(config_file_path).unwrap();
+        return Some(fs::read_to_string(config_file_path).unwrap());
     }
 
     let config_file_path = match env::var("XDG_CONFIG_HOME") {
@@ -91,22 +118,22 @@ fn fetch_sniff_config_file() -> String {
             log::debug!("XDG_CONFIG_HOME exists: {:#?}", val);
             Path::new(&val).join("sniff/sniff.json")
         }
-        Err(_) => {
+        Err(..) => {
             log::error!(
                 "XDG_CONFIG_HOME has not been set. Falling back to ~/.config/sniff/sniff.json"
             );
             Path::new("~/.config/sniff/sniff.json").to_path_buf()
         }
     };
+
     if !config_file_path.exists() {
-        log::error!("Config file doesn't exist.");
-        exit(1);
+        return None;
     }
+
     if Path::new(&config_file_path).exists() {
-        fs::read_to_string(config_file_path).unwrap()
+        return Some(fs::read_to_string(config_file_path).unwrap());
     } else {
-        log::error!("Config file not found!");
-        exit(1);
+        return None;
     }
 }
 
@@ -115,6 +142,8 @@ fn run_system_command(command_dir_pairs: Vec<(Vec<String>, Option<PathBuf>)>) {
         let mut status = WNOHANG;
         wait(&mut status);
     }
+
+    log::info!("************* Initializing Command Runners! *************");
     for (commands, relative_dir) in command_dir_pairs {
         for command in commands {
             // We need to split the arg apart because it returns a temporary pointer that is free'd after
@@ -130,8 +159,6 @@ fn run_system_command(command_dir_pairs: Vec<(Vec<String>, Option<PathBuf>)>) {
             if let Err(e) = cmd.spawn() {
                 log::error!("Failed to execute {}", command);
                 log::error!("Error, {}", e);
-            } else {
-                log::info!("Ran {:#?}", command);
             }
         }
     }
@@ -140,31 +167,34 @@ fn run_system_command(command_dir_pairs: Vec<(Vec<String>, Option<PathBuf>)>) {
 fn check_and_run(
     file_path: &str,
     json: serde_json::Value,
-    ignore_list: Ignore,
+    ignore_list: Option<Ignore>,
+    cooldown: u128,
     last_run: &mut Instant,
 ) {
     // Cooldown check.
-    if Instant::now().duration_since(*last_run).as_millis() < ignore_list.sniff_cooldown {
+    if Instant::now().duration_since(*last_run).as_millis() < cooldown {
         log::debug!("In cooldown.");
         return;
     }
 
-    // First the file check.
-    for ignore_file in ignore_list.sniff_ignore_file {
-        if ignore_file[..] == file_path[file_path.rfind('/').unwrap() + 1..] {
-            log::debug!("Ignoring {} as it's in the ingored file list.", file_path);
-            return;
+    if let Some(ignore_list) = ignore_list {
+        // First the file check.
+        for ignore_file in ignore_list.sniff_ignore_file {
+            if ignore_file[..] == file_path[file_path.rfind('/').unwrap() + 1..] {
+                log::debug!("Ignoring {} as it's in the ingored file list.", file_path);
+                return;
+            }
         }
-    }
 
-    // Now the dir check.
-    for ignore_dir in ignore_list.sniff_ignore_dir {
-        if file_path[0..file_path.rfind('/').unwrap()].contains(ignore_dir.as_str()) {
-            log::debug!(
-                "Ignoring {} as it's in the ingored directory list.",
-                file_path
-            );
-            return;
+        // Now the dir check.
+        for ignore_dir in ignore_list.sniff_ignore_dir {
+            if file_path[0..file_path.rfind('/').unwrap()].contains(ignore_dir.as_str()) {
+                log::debug!(
+                    "Ignoring {} as it's in the ingored directory list.",
+                    file_path
+                );
+                return;
+            }
         }
     }
 
@@ -180,11 +210,13 @@ fn check_and_run(
             }
         },
         None => {
-            log::error!("Failed to get file name from absolute path!");
-            exit(1);
+            log::error!(
+                "{:#?} had no extension. Skipping instruction search.",
+                file_path
+            );
+            return;
         }
     };
-    dbg!(file_name);
     match json {
         serde_json::Value::Object(map) => {
             for (pattern, instructions) in map.iter() {
@@ -210,7 +242,10 @@ fn check_and_run(
                                             for command in commands {
                                                 match command {
                                                     serde_json::Value::String(command) => {
-                                                        command_strs.push(command.to_string());
+                                                        command_strs.push(command.replace(
+                                                            "%sniff_file_name%",
+                                                            file_path,
+                                                        ));
                                                     }
                                                     _ => {
                                                         log::error!("Command wasn't a string.");
