@@ -17,12 +17,12 @@ Sniff uses the JSON file format. Configuration files should always be named *sni
 All JSON keys apart from the following are treated as patterns to check for file changes:
 	- _sniff_ignore_dir_ (Make sniff ignore directories.)
 	- _sniff_ignore_file_ (Make sniff ignore files.)
-	- _sniff_cooldown_ (State the cooldown between consecutive build commands.)
+	- _sniff_cooldown_ (State the cooldown between consecutive build commands. Default is 650 ms.)
 
 Each pattern check can either be an object or an array. 
 	- If the pattern check if an array then the commands in it are executed.
 	- If the pattern check is an object then the following keys are searched for:
-		- "commands": The array of commands to execute.
+		- "commands": The array of commands to execute. "%sniff_file_name%" is a reserved term which is substituted with the file name.
 		- "relative_dir": The directory relative to which the commands should be executed.
 
 # EXAMPLE

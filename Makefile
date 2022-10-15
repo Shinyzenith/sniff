@@ -12,7 +12,8 @@ build:
 
 clean:
 	@cargo clean
-	@rm ./docs/*.gz
+	@$(RM) -f ./docs/*.gz
+	@$(RM) -f ./docs/*.out
 
 install:
 	@find ./docs -type f -iname "*.1.gz" -exec cp {} $(MAN1_DIR) \;
@@ -22,8 +23,8 @@ install:
 	@chmod +x $(TARGET_DIR)/$(BINARY)
 
 uninstall:
-	@rm $(TARGET_DIR)/$(BINARY)
-	@rm /usr/share/man/man1/$(BINARY).1.gz
-	@rm /usr/share/man/man5/$(BINARY).5.gz
+	@$(RM) -f $(TARGET_DIR)/$(BINARY)
+	@$(RM) -f /usr/share/man/man1/$(BINARY).1.gz
+	@$(RM) -f /usr/share/man/man5/$(BINARY).5.gz
 
 .PHONY: build install uninstall
