@@ -18,6 +18,7 @@ All JSON keys apart from the following are treated as patterns to check for file
 	- _sniff_ignore_dir_ (Make sniff ignore directories.)
 	- _sniff_ignore_file_ (Make sniff ignore files.)
 	- _sniff_cooldown_ (State the cooldown between consecutive build commands. Default is 650 ms.)
+	- _sniff_clear_term_ (Call "clear" in the invoking terminal before running build commands.)
 
 Each pattern check can either be an object or an array. 
 	- If the pattern check if an array then the commands in it are executed.

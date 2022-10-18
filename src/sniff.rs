@@ -19,6 +19,11 @@ struct Ignore {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+struct ClearTerm {
+    sniff_clear_term: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct Cooldown {
     sniff_cooldown: u128,
 }
@@ -68,6 +73,14 @@ fn main() {
         }
     };
 
+    let clear_term: Option<ClearTerm> = match serde_json::from_str(config_file.as_str()) {
+        Ok(clear) => Some(clear),
+        Err(..) => {
+            log::debug!("No clear directive found.");
+            None
+        }
+    };
+
     let cooldown: u128 = match serde_json::from_str(config_file.as_str()) {
         Ok(cooldown) => cooldown,
         Err(..) => 650,
@@ -92,6 +105,7 @@ fn main() {
                             path.to_str().unwrap(),
                             json.clone(),
                             ignore_list.clone(),
+                            clear_term.clone(),
                             cooldown,
                             &mut last_run,
                         );
@@ -131,16 +145,27 @@ fn fetch_sniff_config() -> Option<String> {
     }
 
     if Path::new(&config_file_path).exists() {
-        return Some(fs::read_to_string(config_file_path).unwrap());
+        Some(fs::read_to_string(config_file_path).unwrap())
     } else {
-        return None;
+        None
     }
 }
 
-fn run_system_command(command_dir_pairs: Vec<(Vec<String>, Option<PathBuf>)>) {
+fn run_system_command(
+    command_dir_pairs: Vec<(Vec<String>, Option<PathBuf>)>,
+    clear_term: Option<ClearTerm>,
+) {
     unsafe {
         let mut status = WNOHANG;
         wait(&mut status);
+    }
+
+    if let Some(clear_term) = clear_term {
+        if clear_term.sniff_clear_term {
+            if let Err(e) = Command::new("clear").spawn() {
+                log::error!("Failed to clear terminal: {:#?}", e);
+            }
+        }
     }
 
     log::info!("************* Initializing Command Runners! *************");
@@ -168,6 +193,7 @@ fn check_and_run(
     file_path: &str,
     json: serde_json::Value,
     ignore_list: Option<Ignore>,
+    clear_term: Option<ClearTerm>,
     cooldown: u128,
     last_run: &mut Instant,
 ) {
@@ -264,7 +290,7 @@ fn check_and_run(
                             command_dir_pairs.push((command_strs, relative_dir.clone()));
 
                             log::info!("Running build scripts for {:#?}", file_path);
-                            run_system_command(command_dir_pairs.clone());
+                            run_system_command(command_dir_pairs.clone(), clear_term.clone());
                         }
                         serde_json::Value::Array(arr) => {
                             let mut commands: Vec<String> = Vec::new();
@@ -282,7 +308,7 @@ fn check_and_run(
                                 }
                             }
 
-                            run_system_command(vec![(commands, None)]);
+                            run_system_command(vec![(commands, None)], clear_term.clone());
                         }
                         _ => {
                             log::error!("Received incorrect pattern object for {:#?}", pattern);
