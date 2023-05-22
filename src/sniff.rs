@@ -297,7 +297,8 @@ fn check_and_run(
                             for command in arr {
                                 match command {
                                     serde_json::Value::String(command) => {
-                                        commands.push(command.to_owned());
+                                        commands
+                                            .push(command.replace("%sniff_file_name%", file_path));
                                     }
                                     _ => {
                                         log::error!(
